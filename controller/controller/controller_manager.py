@@ -482,7 +482,7 @@ class Controller(Node):
                     else:
                         static_flag = False
 
-            # --- 2. [Team C] Calculate Acceleration & Update State ---
+            # --- 2. Calculate Acceleration & Update State ---
             if target_obstacle is not None:
                 # Extract current data
                 op_s = target_obstacle.s_center
