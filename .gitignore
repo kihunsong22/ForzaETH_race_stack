@@ -70,3 +70,7 @@ data_bag/
 teras_bag/
 teras_head_to_head/
 *.db3
+
+.claude/
+
+CLAUDE.md
