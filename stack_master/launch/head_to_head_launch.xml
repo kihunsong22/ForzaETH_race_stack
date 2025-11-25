@@ -8,14 +8,11 @@
     <!-- launch controller manager -->
 
     <!-- python version -->
-    <!-- <include file="$(find-pkg-share controller)/launch/controller_launch.xml">
+    <include file="$(find-pkg-share controller)/launch/controller_launch.xml">
         <arg name="mode" value="$(var ctrl_algo)"/>
-    </include> -->
+    </include> 
 
-    <!-- cpp version -->
-    <include file="$(find-pkg-share controller_cpp)/launch/controller_launch.xml">
-        <arg name="mode" value="$(var ctrl_algo)"/>
-    </include>
+
     
     <!-- launch state machine -->
     <include file="$(find-pkg-share state_machine)/launch/state_machine_launch.xml">

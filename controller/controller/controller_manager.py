@@ -104,6 +104,13 @@ class Controller(Node):
 
         self.track_length = None
         self.opponent = None
+        # ================= Initialize variables for acceleration estimation =================
+        self.prev_opp_vs = 0.0                        # Previous s-direction velocity
+        self.prev_opp_vd = 0.0                        # Previous d-direction velocity
+        self.prev_opp_time = self.get_clock().now()   # Previous timestamp
+        self.opp_as = 0.0                             # Calculated s-direction acceleration
+        self.opp_ad = 0.0                             # Calculated d-direction acceleration
+        # =============================================================================================
         self.waypoint_array_in_map = None
         self.speed_now = None
         self.position_in_map = None
@@ -452,27 +459,56 @@ class Controller(Node):
         self.waypoints = np.array([[wpnt.x_m, wpnt.y_m, wpnt.psi_rad] for wpnt in data.wpnts])
 
     def obstacle_cb(self, data:ObstacleArray):
+        # Check if data is valid
         if len(data.obstacles) > 0 and \
-            self.position_in_map_frenet is not None and len(self.position_in_map_frenet) and \
-            self.track_length is not None:
+           self.position_in_map_frenet is not None and len(self.position_in_map_frenet) and \
+           self.track_length is not None:
 
-            self.opponent_s = None
-            static_flag = False # If we have a Static and a Dynamic obstacle we prefer the dynamic
+            # --- 1. Find the closest target obstacle ---
+            target_obstacle = None
             closest_opp = self.track_length
+            static_flag = False 
+
             for obstacle in data.obstacles:
                 opponent_dist = (obstacle.s_start - self.position_in_map_frenet[0]) % self.track_length
+                
+                # Select if closer or based on static/dynamic priority
                 if opponent_dist < closest_opp or (static_flag and not obstacle.is_static):
                     closest_opp = opponent_dist
-                    opponent_static = obstacle.is_static
-                    opponent_s = obstacle.s_center
-                    opponent_d = obstacle.d_center
-                    opponent_vs = obstacle.vs
-                    opponent_visible = obstacle.is_visible
-                    if opponent_static:
-                        static_flag = self.prioritize_dyn # Chosen Obstacle is static
+                    target_obstacle = obstacle
+                    
+                    if obstacle.is_static:
+                        static_flag = self.prioritize_dyn
                     else:
-                        static_flag = False # Chosen obstacle is dynamic
-                    self.opponent = [opponent_s, opponent_d, opponent_vs, opponent_static, opponent_visible]
+                        static_flag = False
+
+            # --- 2. Calculate Acceleration & Update State ---
+            if target_obstacle is not None:
+                # Extract current data
+                op_s = target_obstacle.s_center
+                op_d = target_obstacle.d_center
+                op_vs = target_obstacle.vs
+                op_vd = target_obstacle.vd
+                op_static = target_obstacle.is_static
+                op_visible = target_obstacle.is_visible
+
+                # Calculate Acceleration (a = dv / dt)
+                now = self.get_clock().now()
+                dt = (now - self.prev_opp_time).nanoseconds / 1e9
+                
+                if dt > 0.001:
+                    self.opp_as = (op_vs - self.prev_opp_vs) / dt
+                    self.opp_ad = (op_vd - self.prev_opp_vd) / dt
+                
+                # Update previous values for next iteration
+                self.prev_opp_vs = op_vs
+                self.prev_opp_vd = op_vd
+                self.prev_opp_time = now
+
+                # Save final state including acceleration (Size: 7)
+                self.opponent = [op_s, op_d, op_vs, op_static, op_visible, self.opp_as, self.opp_ad]
+            else:
+                self.opponent = None
         else:
             self.opponent = None
 
@@ -565,7 +601,9 @@ class Controller(Node):
                                                                                                                     self.opponent,
                                                                                                                     self.position_in_map_frenet,
                                                                                                                     self.acc_now,
-                                                                                                                    self.track_length)
+                                                                                                                    self.track_length,
+                                                                                                                    self.opp_as,
+                                                                                                                    self.opp_ad)
         self.set_lookahead_marker(L1_point, 100)
         # self.visualize_steering(steering_angle)
         # self.visualize_trailing_opponent()

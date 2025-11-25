@@ -84,7 +84,7 @@ class PP_Controller:
         self.logger_warn = logger_warn
 
     # main loop    
-    def main_loop(self, state, position_in_map, waypoint_array_in_map, speed_now, opponent, position_in_map_frenet, acc_now, track_length):
+    def main_loop(self, state, position_in_map, waypoint_array_in_map, speed_now, opponent, position_in_map_frenet, acc_now, track_length,opp_as=0.0, opp_ad=0.0):
         # Updating parameters from manager
         self.state = state
         self.position_in_map = position_in_map
@@ -129,8 +129,51 @@ class PP_Controller:
         else: 
             raise Exception("L1_point is None")
         
+        # ================= Predictive Safety Logic (Smart Overtake Mode) =================
+        if self.opponent is not None and len(self.opponent) >= 6 and self.position_in_map_frenet is not None:
+            # 1. Extract Data
+            opp_s = self.opponent[0]
+            opp_d = self.opponent[1]
+            opp_vs = self.opponent[2]
+            # opp_as is passed as argument
+
+            # 2. Predict Future (0.5s ahead) using Constant Acceleration
+            t_pred = 0.5
+            future_s = opp_s + (opp_vs * t_pred) + (0.5 * opp_as * (t_pred**2))
+            
+            # 3. Calculate Relative Distance
+            my_s = self.position_in_map_frenet[0]
+            my_d = self.position_in_map_frenet[1]
+            dist_s = (future_s - my_s) % self.track_length
+            dist_d = abs(opp_d - my_d)
+
+            # 4. Check Overtake Intention
+            # If steering angle is significant (> 0.1 rad approx 6 deg), assume overtaking
+            is_overtaking = abs(steering_angle) > 0.1
+            
+            # 5. Set Dynamic Thresholds
+            safe_dist_s = 0.8 if is_overtaking else 1.5  # Allow closer if overtaking
+            safe_dist_d = 0.3
+
+            # 6. Safety Check
+            if 0 < dist_s < safe_dist_s and dist_d < safe_dist_d:
+                self.logger_warn(f"[Safety] Risk Detected! Matching Speed. Dist S: {dist_s:.2f}m")
+                
+                # 7. Action: Speed Matching (Adaptive Cruise Control)
+                # Instead of blind 50% cut, match opponent speed minus offset
+                target_speed = max(0.0, opp_vs - 0.5) 
+                speed = min(speed, target_speed)
+                
+                # If extremely close (< 0.5m), force stop
+                if dist_s < 0.5:
+                    speed = 0.0
+                    
+                acceleration = -3.0
+        # ==========================================================================================
+        
         return speed, acceleration, jerk, steering_angle, L1_point, L1_distance, self.idx_nearest_waypoint
-    
+
+   
     def calc_steering_angle(self, L1_point, L1_distance, yaw, lat_e_norm, v):
         """ 
         The purpose of this function is to calculate the steering angle based on the L1 point, desired lateral acceleration and velocity
