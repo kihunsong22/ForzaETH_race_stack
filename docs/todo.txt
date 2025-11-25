@@ -1,0 +1,59 @@
+GOAL 1: Time-Benefit Analysis
+├─ Foundation (Todos 1-5)
+│  ├─ Parameters for threshold tuning (Todos 1-2)
+│  └─ Ego velocity extraction (Todos 4-5) [needed for calculation]
+├─ Logic Integration (Todo 8)
+│  └─ Instantiate EnhancedDecisionLogic with parameters
+└─ State Machine Check (Todo 9a)
+   └─ _check_enhanced_time_benefit() property
+      → Calls calculate_time_benefit(ego_vel, opp_vel, distance)
+      → Returns True if time_saved >= threshold
+
+GOAL 2: Risk-Aware Safety Margin
+├─ Foundation (Todos 1-5)
+│  ├─ Parameters for margin calculation (Todos 1-2)
+│  └─ Ego velocity extraction (Todos 4-5) [needed for dynamic margin]
+├─ Logic Integration (Todo 8)
+│  └─ EnhancedDecisionLogic calculates margin = f(velocity)
+└─ State Machine Check (Todo 9b)
+   └─ _check_enhanced_safety_margin() property
+      → Calls calculate_safety_margin(ego_velocity)
+      → Returns True if min_distance >= required_margin
+
+ADDITIONAL: Safe Zone Check (Package 1 integration)
+├─ Subscription Setup (Todos 6-7)
+│  └─ Subscribe to /overtake_opportunity from Package 1
+└─ State Machine Check (Todo 9c)
+   └─ _check_enhanced_safe_zone() property
+      → Returns overtake_opportunity.is_safe_zone
+
+GOAL 1: Time-Benefit Analysis
+  Parameters (✅ Done) → Import (← We are here) → Instantiate → Extract velocity → Check method → Transition logic
+
+  GOAL 2: Dynamic Safety Margin
+  Parameters (✅ Done) → Import (← We are here) → Instantiate → Extract velocity → Check method → Transition logic
+
+  GOAL 3 (Optional): Safe Zone Check
+  Parameters (✅ Done) → [Skip for now - use_safe_zone_check=false]
+
+  Current Step: Import
+
+  What: from state_machine.enhanced_decision.decision_logic import EnhancedDecisionLogic
+
+  Why: This imports the CLASS that contains:
+  - calculate_time_benefit() method (implements Goal #1)
+  - calculate_safety_margin() method (implements Goal #2)
+
+  Alignment: This is the foundation for BOTH core goals. Without this import, we can't instantiate the class or call its methods.
+
+  Upcoming Steps Alignment
+
+  | Step                                  | Goal #1 | Goal #2 | Goal #3    |
+  |---------------------------------------|---------|---------|------------|
+  | 4. Instantiate EnhancedDecisionLogic  | ✓       | ✓       | -          |
+  | 5. Extract cur_vs velocity            | ✓       | ✓       | -          |
+  | 6a. Add _check_enhanced_time_benefit  | ✓       | -       | -          |
+  | 6b. Add _check_enhanced_safety_margin | -       | ✓       | -          |
+  | 7. Modify transition logic            | ✓       | ✓       | (optional) |
+
+  Bottom line: Steps 3-5 are shared infrastructure. Step 6 implements your two core features. Step 7 integrates them into decision-making.

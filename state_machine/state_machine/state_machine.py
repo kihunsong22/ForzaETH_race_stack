@@ -27,6 +27,7 @@ from state_machine.state_types import StateType
 from state_machine.states import DefaultStateLogic
 from stack_master.parameter_event_handler import ParameterEventHandler
 from state_machine.state_machine_params import StateMachineParams
+from state_machine.enhanced_decision.decision_logic import EnhancedDecisionLogic
 
 def time_to_float(time_instant: Time):
     return time_instant.sec + time_instant.nanosec * 1e-9
@@ -77,9 +78,10 @@ class StateMachine(Node):
             self.get_logger().info("Waiting for scaled global waypoints message", throttle_duration_sec=0.5)
             rclpy.spin_once(self)
 
-        
+
         self.cur_s = None
         self.cur_d = None
+        self.cur_vs = None  # Package 2: Ego velocity (used at line 347)
         self.create_subscription(Odometry, '/car_state/frenet/odom',self.car_state_frenet_cb, 10) # car frenet coordinates
         while self.cur_s is None:
             self.get_logger().info("Waiting for car state frenet message", throttle_duration_sec=0.5)
@@ -106,6 +108,11 @@ class StateMachine(Node):
             self.ftg_counter = 0
 
             self.overtake_zones = []
+
+            # Package 2: Initialize enhanced decision logic
+            self.enhanced_decision = EnhancedDecisionLogic(
+                time_benefit_threshold=self.params.enhanced_time_benefit_threshold
+            )
 
         # INITIALIZATIONS        
         self.waypoints_dist = 0.1
@@ -201,6 +208,7 @@ class StateMachine(Node):
     def car_state_frenet_cb(self, msg: Odometry):
         self.cur_s = msg.pose.pose.position.x
         self.cur_d = msg.pose.pose.position.y
+        self.cur_vs = msg.twist.twist.linear.x  # Package 2: Extract ego velocity
 
     def avoidance_cb(self, data: OTWpntArray):
         """Subscribes to spliner waypoints"""
@@ -379,6 +387,62 @@ class StateMachine(Node):
         else:
             emergency_break = False
         return emergency_break
+
+    # Package 2: Enhanced Decision Planner Check Methods
+    @property
+    def _check_enhanced_time_benefit(self) -> bool:
+        """
+        Package 2: Check if overtaking provides sufficient time benefit
+
+        Integration Pattern:
+            This property follows the existing state machine pattern of using
+            @property decorators for transition conditions. It's called by
+            SpliniTrailingTransition() as an additional AND condition.
+
+        Algorithm:
+            1. Find closest opponent ahead within overtaking horizon
+            2. Calculate time benefit using EnhancedDecisionLogic
+            3. Return True if benefit >= threshold (default 0.5s)
+
+        Returns:
+            bool: True if overtaking is time-efficient
+
+        See Also:
+            - decision_logic.py:28 for time-benefit calculation
+            - transitions.py:77 for integration point
+        """
+        # Handle None/empty cases
+        if self.cur_vs is None or not self.obstacles:
+            return False
+
+        # Find closest opponent ahead
+        horizon = self.params.overtaking_horizon_m
+        closest_opponent = None
+        min_distance = float('inf')
+
+        for obs in self.obstacles:
+            dist_to_obj = (obs.s_center - self.cur_s) % self.track_length
+            if dist_to_obj < horizon and dist_to_obj < min_distance:
+                min_distance = dist_to_obj
+                closest_opponent = obs
+
+        if closest_opponent is None:
+            return False
+
+        # Get opponent velocity (handle potential None or zero values)
+        opponent_velocity = closest_opponent.vs if hasattr(closest_opponent, 'vs') else 0.0
+        if opponent_velocity <= 0:
+            opponent_velocity = 0.1  # Avoid division by zero
+
+        # Calculate time benefit
+        time_benefit = self.enhanced_decision.calculate_time_benefit(
+            ego_velocity=self.cur_vs,
+            opponent_velocity=opponent_velocity,
+            distance=min_distance
+        )
+
+        return time_benefit >= self.params.enhanced_time_benefit_threshold
+
     ###########
     # HELPERS #
     ###########

@@ -34,12 +34,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/OTWpntArray.msg"
   "msg/Obstacle.msg"
   "msg/ObstacleArray.msg"
+  "msg/OvertakeOpportunity.msg"
   "msg/PidData.msg"
   "msg/Wpnt.msg"
   "msg/WpntArray.msg"
   "msg/OpponentTrajectory.msg"
   "msg/OppWpnt.msg"
-  DEPENDENCIES 
+  DEPENDENCIES
   "std_msgs"
   "geometry_msgs"
  )

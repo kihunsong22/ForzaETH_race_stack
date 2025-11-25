@@ -8,7 +8,7 @@ package_name = 'state_machine'
 setup(
     name=package_name,
     version='0.0.0',
-    packages=[package_name],
+    packages=[package_name, 'state_machine.enhanced_decision'],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'state_machine = state_machine.state_machine:main', # runs main in state_machine.py
+            'mock_overtake_publisher = state_machine.enhanced_decision.mock_publisher:main',
         ],
     },
 )

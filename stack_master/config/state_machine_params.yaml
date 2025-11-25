@@ -26,3 +26,7 @@ state_machine:
 
     Trailing_to_GBtrack_counting_threshold: 0 # [count] number of consecutive times we have to see gb_free to switch from TRAILING to GB_TRACK (0~500) -> 40hz 일때 count 40개당 1초
 
+    # Package 2: Enhanced Decision Planner
+    enhanced_time_benefit_threshold: 0.5  # [s] Minimum time saving for overtaking
+    use_safe_zone_check: false            # Enable Package 1 integration (optional)
+

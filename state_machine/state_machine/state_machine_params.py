@@ -212,6 +212,22 @@ class StateMachineParams:
         node.set_descriptor("Trailing_to_GBtrack_counting_threshold", descriptor=descriptor)
         self.Trailing_to_GBtrack_counting_threshold: int = node.get_parameter("Trailing_to_GBtrack_counting_threshold").value
 
+        # Package 2: Enhanced Decision Planner Parameters
+        descriptor = ParameterDescriptor(
+            description="Minimum time benefit threshold for overtaking (seconds)\n",
+            type=ParameterType.PARAMETER_DOUBLE,
+            floating_point_range=[FloatingPointRange(from_value=0.0, to_value=5.0, step=0.1)]
+        )
+        node.set_descriptor("enhanced_time_benefit_threshold", descriptor=descriptor)
+        self.enhanced_time_benefit_threshold: float = node.get_parameter("enhanced_time_benefit_threshold").value
+
+        descriptor = ParameterDescriptor(
+            description="Enable Package 1 safe zone check integration\n",
+            type=ParameterType.PARAMETER_BOOL
+        )
+        node.set_descriptor("use_safe_zone_check", descriptor=descriptor)
+        self.use_safe_zone_check: bool = node.get_parameter("use_safe_zone_check").value
+
 
     def parameters_callback(self, parameters: List[Parameter]) -> SetParametersResult:
         for param in parameters:
