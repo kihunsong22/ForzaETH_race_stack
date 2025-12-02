@@ -1,0 +1,6 @@
+# OvertakeSectionMsg.msg
+# 추월 구간 정보를 Decision Planner (Package 2)에 전달하기 위한 커스텀 메시지
+
+bool is_possible       # 현재 차량이 추월 가능 구간 내에 있는지 여부 (기본 플래그)
+int32[] wp_indices     # 추월 구간의 [시작 인덱스, 종료 인덱스] 
+float32 curvature_score # 해당 구간의 평균 곡률 점수 (낮을수록 안전)
