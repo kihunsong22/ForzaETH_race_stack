@@ -2,9 +2,12 @@
 
 ## Overview
 
-Package 2 adds intelligent time-benefit analysis to the ForzaETH state machine's overtaking decisions. Instead of overtaking whenever an opportunity arises, the system now evaluates whether the maneuver actually saves time compared to trailing the opponent.
+Package 2 adds intelligent decision-making to the ForzaETH state machine's overtaking logic through two complementary features:
 
-**Key Feature**: Path-based time comparison using actual Spliner trajectories - **no arbitrary constants**.
+1. **Path-Based Time-Benefit Analysis**: Compares time to traverse racing line vs. Spliner overtaking trajectory - uses actual path distances, no arbitrary constants
+2. **Risk-Aware Safety Margin**: Maintains speed-dependent minimum distance to opponents - higher speeds require larger safety margins
+
+The system only overtakes when **both conditions are met**: time-efficient AND safe distance maintained.
 
 ## Message Interface
 
@@ -180,14 +183,59 @@ graph TD
     style F fill:#4CAF50,color:#fff
 ```
 
+### Risk-Aware Safety Margin
+
+**Core Concept**: Maintain speed-dependent minimum distance to opponents
+
+**Risk Factors at High Speeds**:
+- Longer braking distances (quadratic with speed)
+- Reduced reaction time
+- Higher impact severity
+- Less margin for error
+
+**Formula**:
+```python
+def calculate_safety_margin(ego_velocity):
+    return base_margin + speed_margin_factor * ego_velocity
+```
+
+**Example Calculations**:
+
+| Ego Speed | Base | Factor | Required Margin | Physics Rationale |
+|-----------|------|--------|----------------|-------------------|
+| 3 m/s | 1.0m | 0.1 | **1.3m** | Low speed, moderate risk |
+| 5 m/s | 1.0m | 0.1 | **1.5m** | Medium speed, increased risk |
+| 8 m/s | 1.0m | 0.1 | **1.8m** | High speed, high risk |
+
+**Integration**: The safety margin check runs **in addition to** time-benefit analysis:
+```python
+if (_check_enhanced_time_benefit AND _check_enhanced_safety_margin):
+    → OVERTAKE
+else:
+    → TRAILING
+```
+
+**Scenario Example**:
+
+```
+Situation: Ego at 5 m/s, Opponent ahead at 1.2m distance
+Required margin: 1.0 + 0.1×5 = 1.5m
+Actual distance: 1.2m
+
+Decision: 1.2m < 1.5m → ❌ DON'T OVERTAKE (unsafe distance)
+Even if time-benefit is positive, safety takes priority
+```
+
 ## Code Locations
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **Arc Length Helper** | `state_machine/enhanced_decision/decision_logic.py:29` | `calculate_arc_length()` static method |
-| **Decision Logic** | `state_machine/enhanced_decision/decision_logic.py:61` | `calculate_time_benefit_from_paths()` method |
-| **Check Method** | `state_machine/state_machine.py:394` | `_check_enhanced_time_benefit()` property |
-| **Transition Integration** | `state_machine/transitions.py:77` | Added condition to `SpliniTrailingTransition()` |
+| **Arc Length Helper** | `state_machine/enhanced_decision/decision_logic.py:35` | `calculate_arc_length()` static method |
+| **Time-Benefit Method** | `state_machine/enhanced_decision/decision_logic.py:61` | `calculate_time_benefit_from_paths()` method |
+| **Safety Margin Method** | `state_machine/enhanced_decision/decision_logic.py:114` | `calculate_safety_margin()` method |
+| **Time-Benefit Check** | `state_machine/state_machine.py:394` | `_check_enhanced_time_benefit()` property |
+| **Safety Margin Check** | `state_machine/state_machine.py:460` | `_check_enhanced_safety_margin()` property |
+| **Transition Integration** | `state_machine/transitions.py:75` | Both checks in `SpliniTrailingTransition()` |
 | **Parameters** | `stack_master/config/state_machine_params.yaml:29` | Configuration values |
 | **Parameter Declarations** | `state_machine/state_machine_params.py:216` | Parameter descriptors |
 
@@ -196,9 +244,11 @@ graph TD
 **File**: `stack_master/config/state_machine_params.yaml`
 
 ```yaml
-# Package 2: Enhanced Decision Planner (Path-Based)
+# Package 2: Enhanced Decision Planner (Path-Based + Risk-Aware)
 enhanced_time_benefit_threshold: 0.5  # [s] Minimum time saving for overtaking
 enhanced_lookahead_distance: 10.0     # [m] Following distance for comparison
+enhanced_base_safety_margin: 1.0      # [m] Minimum distance to opponent
+enhanced_speed_margin_factor: 0.1     # [m/(m/s)] Additional margin per velocity
 use_safe_zone_check: false            # Enable Package 1 integration (optional)
 ```
 
@@ -208,8 +258,12 @@ use_safe_zone_check: false            # Enable Package 1 integration (optional)
 |-----------|---------|-------|---------|
 | `enhanced_time_benefit_threshold` | 0.5s | 0.0-5.0s | Minimum time saved to trigger overtake |
 | `enhanced_lookahead_distance` | 10.0m | 5.0-30.0m | Distance along racing line for trailing time |
+| `enhanced_base_safety_margin` | 1.0m | 0.5-5.0m | Minimum distance to opponent (at zero speed) |
+| `enhanced_speed_margin_factor` | 0.1 | 0.0-0.5 | Additional margin per m/s of velocity |
 
 **Tuning Guidelines**:
+
+### Time-Benefit Parameters
 
 **Time Benefit Threshold**:
 - **Higher** (e.g., 1.0s): More conservative, requires larger time savings
@@ -220,6 +274,25 @@ use_safe_zone_check: false            # Enable Package 1 integration (optional)
 - **Higher** (e.g., 20.0m): Long-term planning horizon
 - **Lower** (e.g., 5.0m): Immediate benefit focus
 - **Default 10.0m**: Medium-term horizon (appropriate for F1/10 scale)
+
+### Risk-Aware Safety Parameters
+
+**Base Safety Margin**:
+- **Higher** (e.g., 2.0m): More conservative, larger buffer at all speeds
+- **Lower** (e.g., 0.5m): More aggressive, tighter following
+- **Default 1.0m**: Safe minimum distance
+
+**Speed Margin Factor**:
+- **Higher** (e.g., 0.2): Strongly penalizes high-speed proximity
+- **Lower** (e.g., 0.05): Allows closer following at high speeds
+- **Default 0.1**: Reasonable linear scaling with speed
+
+**Formula**: `required_margin = base + factor * velocity`
+
+**Examples**:
+- At 3 m/s: 1.0 + 0.1×3 = 1.3m required
+- At 5 m/s: 1.0 + 0.1×5 = 1.5m required
+- At 8 m/s: 1.0 + 0.1×8 = 1.8m required
 
 ## Testing
 
@@ -265,6 +338,7 @@ self.get_logger().info(
 |---------|--------|-------|
 | **Path-Based Time-Benefit** | ✅ Implemented | Uses Spliner trajectories, no arbitrary constants |
 | **Arc Length Calculation** | ✅ Implemented | Handles nav_msgs/Path and direct waypoint formats |
+| **Risk-Aware Safety Margin** | ✅ Implemented | Speed-dependent minimum distance to opponents |
 | **Package 1 Integration** | 🔌 Ready | Message interface defined, awaiting Package 1 completion |
 
 ## Design Rationale
@@ -291,6 +365,33 @@ Net effect: Longer path, but much higher speed → still faster overall
 ```
 
 The formula correctly captures both geometric and kinematic effects without arbitrary assumptions.
+
+### Why Risk-Aware Safety Margin?
+
+**Problem with static safety margins**: A fixed 1.0m distance is appropriate at 3 m/s but dangerously close at 8 m/s.
+
+**Physics basis**:
+- **Braking distance** scales with v² (kinetic energy)
+- **Reaction distance** scales linearly with v
+- Combined: Higher speeds need proportionally larger margins
+
+**Why linear approximation?**
+- True physics is quadratic (v²), but linear provides:
+  - Simple, predictable behavior
+  - Easy to tune
+  - Conservative at high speeds (errs on side of safety)
+  - Sufficient for F1/10 scale
+
+**Real-world analogy**: Highway following distances use "2-second rule" (time-based, equivalent to linear velocity scaling).
+
+**Integration with time-benefit**: Both checks must pass:
+```
+Time-efficient? YES → Safety check
+Safe distance? YES → OVERTAKE
+Any NO → TRAILING
+```
+
+This ensures we never sacrifice safety for time gains.
 
 ## Future Work
 

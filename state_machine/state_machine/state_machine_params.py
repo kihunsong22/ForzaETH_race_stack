@@ -230,6 +230,22 @@ class StateMachineParams:
         self.enhanced_lookahead_distance: float = node.get_parameter("enhanced_lookahead_distance").value
 
         descriptor = ParameterDescriptor(
+            description="Minimum distance to opponent for safety (meters)\n",
+            type=ParameterType.PARAMETER_DOUBLE,
+            floating_point_range=[FloatingPointRange(from_value=0.5, to_value=5.0, step=0.1)]
+        )
+        node.set_descriptor("enhanced_base_safety_margin", descriptor=descriptor)
+        self.enhanced_base_safety_margin: float = node.get_parameter("enhanced_base_safety_margin").value
+
+        descriptor = ParameterDescriptor(
+            description="Additional safety margin per m/s of velocity (m/(m/s))\n",
+            type=ParameterType.PARAMETER_DOUBLE,
+            floating_point_range=[FloatingPointRange(from_value=0.0, to_value=0.5, step=0.01)]
+        )
+        node.set_descriptor("enhanced_speed_margin_factor", descriptor=descriptor)
+        self.enhanced_speed_margin_factor: float = node.get_parameter("enhanced_speed_margin_factor").value
+
+        descriptor = ParameterDescriptor(
             description="Enable Package 1 safe zone check integration\n",
             type=ParameterType.PARAMETER_BOOL
         )

@@ -17,14 +17,20 @@ class EnhancedDecisionLogic:
 
     def __init__(self,
                  time_benefit_threshold: float = 0.5,
-                 lookahead_distance: float = 10.0):
+                 lookahead_distance: float = 10.0,
+                 base_safety_margin: float = 1.0,
+                 speed_margin_factor: float = 0.1):
         """
         Args:
             time_benefit_threshold: Minimum time saving (seconds) to overtake
             lookahead_distance: Look-ahead distance for calculation (meters)
+            base_safety_margin: Minimum distance to opponent (meters)
+            speed_margin_factor: Additional margin per m/s of velocity
         """
         self.time_threshold = time_benefit_threshold
         self.lookahead_distance = lookahead_distance
+        self.base_margin = base_safety_margin
+        self.k_speed = speed_margin_factor
 
     @staticmethod
     def calculate_arc_length(waypoints) -> float:
@@ -104,3 +110,28 @@ class EnhancedDecisionLogic:
         time_overtake = d_overtake / ego_velocity
 
         return time_follow - time_overtake
+
+    def calculate_safety_margin(self, ego_velocity: float) -> float:
+        """
+        Calculate dynamic safety margin based on speed
+
+        Risk-aware: Higher speeds require larger safety margins due to:
+        - Longer braking distances
+        - Reduced reaction time
+        - Higher impact severity
+
+        Formula:
+            margin = base_margin + k_speed * ego_velocity
+
+        Args:
+            ego_velocity: Our speed (m/s)
+
+        Returns:
+            Required safety margin in meters
+
+        Example:
+            At 3 m/s: 1.0 + 0.1*3 = 1.3m
+            At 5 m/s: 1.0 + 0.1*5 = 1.5m
+            At 8 m/s: 1.0 + 0.1*8 = 1.8m
+        """
+        return self.base_margin + self.k_speed * ego_velocity

@@ -112,7 +112,9 @@ class StateMachine(Node):
             # Package 2: Initialize enhanced decision logic
             self.enhanced_decision = EnhancedDecisionLogic(
                 time_benefit_threshold=self.params.enhanced_time_benefit_threshold,
-                lookahead_distance=self.params.enhanced_lookahead_distance
+                lookahead_distance=self.params.enhanced_lookahead_distance,
+                base_safety_margin=self.params.enhanced_base_safety_margin,
+                speed_margin_factor=self.params.enhanced_speed_margin_factor
             )
 
         # INITIALIZATIONS        
@@ -454,6 +456,51 @@ class StateMachine(Node):
         )
 
         return time_benefit >= self.params.enhanced_time_benefit_threshold
+
+    @property
+    def _check_enhanced_safety_margin(self) -> bool:
+        """
+        Package 2: Check if distance to opponent exceeds risk-aware safety margin
+
+        Risk-Aware Approach:
+            Safety margin increases with speed to account for:
+            - Longer braking distances at high speeds
+            - Reduced reaction time
+            - Higher impact severity
+
+        Formula:
+            required_margin = base_margin + k_speed * ego_velocity
+
+        Returns:
+            bool: True if distance to opponent is safe
+
+        Example:
+            At 5 m/s with base=1.0m, k=0.1: margin = 1.5m
+            At 8 m/s with base=1.0m, k=0.1: margin = 1.8m
+        """
+        # Handle None/empty cases
+        if self.cur_vs is None or not self.obstacles:
+            return True  # No obstacles, safe to proceed
+
+        # Find closest opponent ahead
+        horizon = self.params.overtaking_horizon_m
+        closest_opponent = None
+        min_distance = float('inf')
+
+        for obs in self.obstacles:
+            dist_to_obj = (obs.s_center - self.cur_s) % self.track_length
+            if dist_to_obj < horizon and dist_to_obj < min_distance:
+                min_distance = dist_to_obj
+                closest_opponent = obs
+
+        if closest_opponent is None:
+            return True  # No opponent nearby, safe
+
+        # Calculate required safety margin based on current speed
+        required_margin = self.enhanced_decision.calculate_safety_margin(self.cur_vs)
+
+        # Check if actual distance exceeds required margin
+        return min_distance >= required_margin
 
     ###########
     # HELPERS #

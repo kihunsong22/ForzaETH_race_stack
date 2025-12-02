@@ -69,14 +69,16 @@ def SpliniTrailingTransition(state_machine: StateMachine) -> StateType:
             return StateType.TRAILING_TO_GBTRACK
 
         # Package 2: Enhanced decision planner integration
-        # Added one condition to existing overtaking logic (line 77)
-        # Ensures overtaking only happens when time-efficient
+        # Added two conditions to existing overtaking logic
+        # 1. Time-benefit analysis: Only overtake if time-efficient
+        # 2. Risk-aware safety margin: Maintain speed-dependent distance
         elif (
             not gb_free
             and ot_sector
             and state_machine._check_availability_splini_wpts
             and state_machine._check_ofree
-            and state_machine._check_enhanced_time_benefit       # Package 2: Time-benefit analysis
+            and state_machine._check_enhanced_time_benefit       # Package 2: Time-benefit
+            and state_machine._check_enhanced_safety_margin      # Package 2: Safety margin
         ):
             return StateType.OVERTAKE
         else:
@@ -113,13 +115,14 @@ def SpliniTrailingToGbtrackTransition(state_machine: StateMachine) -> StateType:
             else:
                 return StateType.TRAILING_TO_GBTRACK
 
-        # Package 2: Same enhanced check as in SpliniTrailingTransition
+        # Package 2: Same enhanced checks as in SpliniTrailingTransition
         elif (
             not gb_free
             and ot_sector
             and state_machine._check_availability_splini_wpts
             and state_machine._check_ofree
-            and state_machine._check_enhanced_time_benefit       # Package 2: Time-benefit analysis
+            and state_machine._check_enhanced_time_benefit       # Package 2: Time-benefit
+            and state_machine._check_enhanced_safety_margin      # Package 2: Safety margin
         ):
             state_machine.trailing_to_gbtrack_count = 0
             return StateType.OVERTAKE
