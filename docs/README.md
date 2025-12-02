@@ -10,10 +10,10 @@ Example: `251123-overtaking-enhancement.md`
 
 ## Current Documentation
 
-- **251123-overtaking-enhancement.md** - Context-aware autonomous overtaking system (original proposal)
-- **251125-package-structure.md** - Package 2 initial structure and message definitions
-- **251125-implementation-spec.md** - Scoped implementation plan with simplified approach
-- **TEAM.md** - Team member information and package ownership
+### Package 2: Enhanced Decision Planner
+
+- **251125-package2-implementation.md** - Package 2 implementation guide (path-based time-benefit analysis)
+- **251202-package2-path-based-architecture.md** - Detailed architecture document with system diagrams and component interactions
 
 ## Adding New Documentation
 

@@ -4,7 +4,7 @@
 
 Package 2 adds intelligent time-benefit analysis to the ForzaETH state machine's overtaking decisions. Instead of overtaking whenever an opportunity arises, the system now evaluates whether the maneuver actually saves time compared to trailing the opponent.
 
-**Key Feature**: Only overtake when time saved ≥ 0.5 seconds (configurable)
+**Key Feature**: Path-based time comparison using actual Spliner trajectories - **no arbitrary constants**.
 
 ## Message Interface
 
@@ -21,14 +21,16 @@ Package 2 is a pure decision layer that enhances existing state machine logic wi
 └─ Provides: Opponent position (s_center, d_center) and velocity (vs)
 └─ Purpose: Find closest opponent and calculate time-trailing
 
+/planner/avoidance/otwpnts (nav_msgs/Path)
+└─ Provides: Overtaking trajectory waypoints from Spliner
+└─ Purpose: Calculate actual overtaking path distance
+
 /overtake_opportunity (f110_msgs/OvertakeOpportunity) [OPTIONAL - Future]
 └─ Provides: Safe zone indication from Package 1
 └─ Purpose: Coordinate with curvature-based track analysis
 ```
 
-###
-
- Output
+### Output
 
 **No new topics published** - Package 2 modifies state transitions internally
 
@@ -36,6 +38,7 @@ Package 2 is a pure decision layer that enhances existing state machine logic wi
 graph LR
     A[/car_state/frenet/odom] -->|cur_vs| SM[State Machine]
     B[/perception/obstacles] -->|opponent data| SM
+    C[/planner/avoidance/otwpnts] -->|Spliner path| SM
     SM -->|enhanced checks| T[Transition Logic]
     T --> D{OVERTAKE?}
 ```
@@ -59,7 +62,7 @@ def _check_gbfree(self) -> bool:
 @property
 def _check_enhanced_time_benefit(self) -> bool:
     """Returns True if overtaking saves time"""
-    # Implementation compares trailing vs. overtaking time
+    # Implementation compares trailing vs. overtaking time using paths
 ```
 
 ### Integration Strategy: Additive, Not Destructive
@@ -109,125 +112,114 @@ flowchart TB
 
 ## Implementation
 
-### Time-Benefit Analysis Formula
+### Path-Based Time-Benefit Analysis
 
-**Core Concept**: Compare time spent trailing opponent vs. time spent overtaking
+**Core Concept**: Compare time to traverse racing line vs. actual Spliner overtaking trajectory
+
+**Pure Physics Approach**: No arbitrary maneuver cost constants. Uses actual path distances.
 
 ```python
-def calculate_time_benefit(ego_velocity, opponent_velocity, distance=10.0):
-    # DYNAMIC maneuver cost based on velocity
-    maneuver_cost = base_maneuver_cost + velocity_cost_factor * ego_velocity
+def calculate_time_benefit_from_paths(ego_velocity, opponent_velocity,
+                                      following_distance, overtaking_waypoints):
+    # Calculate overtaking path distance from Spliner
+    d_overtake = calculate_arc_length(overtaking_waypoints)
 
-    time_trailing = distance / opponent_velocity
-    time_overtaking = distance / ego_velocity + maneuver_cost
+    # Time comparison - pure kinematics
+    time_follow = following_distance / opponent_velocity
+    time_overtake = d_overtake / ego_velocity
 
-    return time_trailing - time_overtaking  # Positive = saves time
+    return time_follow - time_overtake  # Positive = saves time
 ```
 
-**Key Innovation**: **Dynamic maneuver cost** - Higher speeds increase lane change time/risk
+**Key Innovation**: Uses real trajectory data from Spliner - accounts for geometric path difference while maintaining physical correctness.
 
-**Formula**: `maneuver_cost = 1.5s + 0.15 * ego_velocity`
-- At 3 m/s: 1.5 + 0.15(3) = 1.95s
-- At 5 m/s: 1.5 + 0.15(5) = 2.25s
-- At 8 m/s: 1.5 + 0.15(8) = 2.70s
+### Arc Length Calculation
+
+Calculates actual path distance by summing Euclidean distances between waypoints:
+
+```python
+@staticmethod
+def calculate_arc_length(waypoints):
+    total_distance = 0.0
+    for i in range(len(waypoints) - 1):
+        dx = waypoints[i+1].x - waypoints[i].x
+        dy = waypoints[i+1].y - waypoints[i].y
+        total_distance += sqrt(dx**2 + dy**2)
+    return total_distance
+```
 
 ### Example Calculation
 
-**Scenario**: Ego at 5 m/s, Opponent at 3 m/s, Distance 10m
+**Scenario**: Ego at 6 m/s, Opponent at 3 m/s, Following distance 10m, Overtaking path 10.5m
 
 ```
-Maneuver Cost (DYNAMIC):
-  1.5s + 0.15 * 5 m/s = 2.25 seconds
-
-Trailing Time:
-  10m ÷ 3 m/s = 3.33 seconds
+Following Time:
+  10.0m ÷ 3 m/s = 3.33 seconds
 
 Overtaking Time:
-  10m ÷ 5 m/s + 2.25s maneuver = 4.25 seconds
+  10.5m ÷ 6 m/s = 1.75 seconds
 
 Time Benefit:
-  3.33s - 4.25s = -0.92 seconds
+  3.33s - 1.75s = 1.58 seconds
 
 Decision:
-  -0.92s < 0.5s threshold → ❌ DON'T OVERTAKE
-  (Dynamic maneuver cost makes overtaking inefficient)
+  1.58s ≥ 0.5s threshold → ✅ OVERTAKE
+  (Velocity advantage overcomes longer path)
 ```
+
+**Why this works**: Overtaking path is slightly longer geometrically (lateral deviation), but ego vehicle traverses it at higher velocity. The pure time comparison captures both effects.
 
 ```mermaid
 graph TD
-    A[Ego: 5 m/s<br/>Opponent: 3 m/s<br/>Distance: 10m] --> M[Maneuver Cost<br/>1.5 + 0.15*5 = 2.25s]
-    M --> B{Calculate}
+    A[Ego: 6 m/s<br/>Opponent: 3 m/s<br/>d_follow: 10m<br/>d_overtake: 10.5m] --> B{Calculate}
     B -->|Trailing| C[10m ÷ 3m/s<br/>= 3.33s]
-    B -->|Overtaking| D[10m ÷ 5m/s + 2.25s<br/>= 4.25s]
-    C & D --> E[Benefit: 3.33 - 4.25<br/>= -0.92s]
-    E --> F[❌ Don't Overtake<br/>Dynamic cost too high]
+    B -->|Overtaking| D[10.5m ÷ 6m/s<br/>= 1.75s]
+    C & D --> E[Benefit: 3.33 - 1.75<br/>= 1.58s]
+    E --> F[✅ Overtake<br/>Saves 1.58s]
 
-    style F fill:#f44336,color:#fff
-    style M fill:#FFC107,color:#000
+    style F fill:#4CAF50,color:#fff
 ```
 
 ## Code Locations
 
-| Component | File | Line | Purpose |
-|-----------|------|------|---------|
-| **Decision Logic** | `state_machine/enhanced_decision/decision_logic.py` | 28 | `calculate_time_benefit()` method |
-| **Check Method** | `state_machine/state_machine.py` | 395 | `_check_enhanced_time_benefit()` property |
-| **Transition Integration** | `state_machine/transitions.py` | 77 | Added condition to `SpliniTrailingTransition()` |
-| **Parameters** | `stack_master/config/state_machine_params.yaml` | 30 | Configuration values |
-| **Parameter Declarations** | `state_machine/state_machine_params.py` | 216 | Parameter descriptors |
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Arc Length Helper** | `state_machine/enhanced_decision/decision_logic.py:29` | `calculate_arc_length()` static method |
+| **Decision Logic** | `state_machine/enhanced_decision/decision_logic.py:61` | `calculate_time_benefit_from_paths()` method |
+| **Check Method** | `state_machine/state_machine.py:394` | `_check_enhanced_time_benefit()` property |
+| **Transition Integration** | `state_machine/transitions.py:77` | Added condition to `SpliniTrailingTransition()` |
+| **Parameters** | `stack_master/config/state_machine_params.yaml:29` | Configuration values |
+| **Parameter Declarations** | `state_machine/state_machine_params.py:216` | Parameter descriptors |
 
 ## Configuration
 
 **File**: `stack_master/config/state_machine_params.yaml`
 
 ```yaml
-# Package 2: Enhanced Decision Planner
+# Package 2: Enhanced Decision Planner (Path-Based)
 enhanced_time_benefit_threshold: 0.5  # [s] Minimum time saving for overtaking
-enhanced_base_maneuver_cost: 1.5      # [s] Base lane change time (CORE PARAMETER)
-enhanced_velocity_cost_factor: 0.15   # [s/m/s] Additional cost per velocity (dynamic)
-enhanced_lookahead_distance: 10.0     # [m] Distance for time-benefit calculation
+enhanced_lookahead_distance: 10.0     # [m] Following distance for comparison
 use_safe_zone_check: false            # Enable Package 1 integration (optional)
 ```
 
-**Core Parameters**:
+**Parameters**:
 
 | Parameter | Default | Range | Purpose |
 |-----------|---------|-------|---------|
 | `enhanced_time_benefit_threshold` | 0.5s | 0.0-5.0s | Minimum time saved to trigger overtake |
-| **`enhanced_base_maneuver_cost`** | **1.5s** | **0.0-5.0s** | **Base lane change time (CRITICAL)** |
-| **`enhanced_velocity_cost_factor`** | **0.15** | **0.0-1.0** | **Dynamic cost per m/s (CRITICAL)** |
-| `enhanced_lookahead_distance` | 10.0m | 5.0-30.0m | Distance for time calculation |
-
-**Dynamic Maneuver Cost Model**:
-```
-maneuver_cost = base_cost + velocity_factor * ego_velocity
-```
-- At low speed (3 m/s): 1.5 + 0.15(3) = 1.95s
-- At medium speed (5 m/s): 1.5 + 0.15(5) = 2.25s
-- At high speed (8 m/s): 1.5 + 0.15(8) = 2.70s
+| `enhanced_lookahead_distance` | 10.0m | 5.0-30.0m | Distance along racing line for trailing time |
 
 **Tuning Guidelines**:
 
-**Base Maneuver Cost**:
-- **Higher** (e.g., 2.5s): Assumes slower baseline lane changes
-- **Lower** (e.g., 1.0s): Assumes quick baseline lane changes
-- **Default 1.5s**: Realistic minimum time for F1/10
-
-**Velocity Cost Factor** (KEY INNOVATION):
-- **Higher** (e.g., 0.25): Penalizes high-speed overtaking more heavily
-- **Lower** (e.g., 0.05): Allows aggressive high-speed maneuvers
-- **Default 0.15**: Reasonable velocity-risk tradeoff
-- **Impact**: Makes system velocity-aware - conservative at high speeds
-
 **Time Benefit Threshold**:
-- **Higher** (e.g., 1.0s): More conservative
-- **Lower** (e.g., 0.2s): More aggressive
-- **Default 0.5s**: Balanced
+- **Higher** (e.g., 1.0s): More conservative, requires larger time savings
+- **Lower** (e.g., 0.2s): More aggressive, overtakes with small time gains
+- **Default 0.5s**: Balanced approach
 
 **Lookahead Distance**:
-- **Higher** (e.g., 20.0m): Long-term planning
+- **Higher** (e.g., 20.0m): Long-term planning horizon
 - **Lower** (e.g., 5.0m): Immediate benefit focus
-- **Default 10.0m**: Medium-term horizon
+- **Default 10.0m**: Medium-term horizon (appropriate for F1/10 scale)
 
 ## Testing
 
@@ -249,34 +241,58 @@ ros2 launch stack_master head_to_head_launch.xml \
 
 **Expected Behavior**:
 - State machine loads without errors
-- `enhanced_time_benefit_threshold` parameter is readable:
+- Parameters are readable:
   ```bash
   ros2 param get /state_machine enhanced_time_benefit_threshold
+  ros2 param get /state_machine enhanced_lookahead_distance
   ```
 - Overtaking only occurs when time-benefit check passes
 - No new topics published (verify with `ros2 topic list`)
 
 **Debug Logging** (optional):
-Add to `state_machine.py:427` for visibility:
+Add to `state_machine.py:456` for visibility:
 ```python
-self.get_logger().info(f"Time benefit: {time_benefit:.2f}s (threshold: {self.params.enhanced_time_benefit_threshold}s)")
+self.get_logger().info(
+    f"Path-based benefit: {time_benefit:.2f}s "
+    f"(d_follow={self.enhanced_decision.lookahead_distance:.1f}m, "
+    f"d_overtake={d_overtake:.1f}m)"
+)
 ```
 
 ## Implementation Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **Time-Benefit Analysis** | ✅ Implemented | Fully functional, tested in simulation |
-| **Dynamic Safety Margin** | ⏳ Deferred | Designed but not deployed (future work) |
+| **Path-Based Time-Benefit** | ✅ Implemented | Uses Spliner trajectories, no arbitrary constants |
+| **Arc Length Calculation** | ✅ Implemented | Handles nav_msgs/Path and direct waypoint formats |
 | **Package 1 Integration** | 🔌 Ready | Message interface defined, awaiting Package 1 completion |
 
-## Future Work
+## Design Rationale
 
-### Dynamic Safety Margin (Deferred)
-**Concept**: Speed-dependent minimum distance requirement
-- Formula: `margin = base_margin + k_speed * ego_velocity`
-- **Why Deferred**: Time-benefit analysis alone provides sufficient improvement for interim demo
-- **Integration Plan**: Add `_check_enhanced_safety_margin()` property when needed
+### Why Path-Based Instead of Constant Maneuver Cost?
+
+**Problem with constants**: F1/10 tracks are small. Entire overtaking maneuvers take 1-2 seconds. Arbitrary constants (e.g., 1.5s) would dominate the calculation unrealistically.
+
+**Path-based solution**:
+- Uses actual trajectory from Spliner (already computed)
+- Accounts for geometric path difference naturally
+- Pure physics: `time = distance / velocity`
+- No tuning required for different tracks/speeds
+
+**Scale appropriateness**: At F1/10 scale, the path length difference (lateral deviation ~0.5m over 10m forward ≈ 10.01m total) adds only ~1-2% extra distance. The velocity difference is the dominant factor.
+
+### Physical Interpretation
+
+```
+Trailing:  Travel 10m at opponent's speed (slower)
+Overtaking: Travel ~10.5m at ego speed (faster)
+
+Net effect: Longer path, but much higher speed → still faster overall
+```
+
+The formula correctly captures both geometric and kinematic effects without arbitrary assumptions.
+
+## Future Work
 
 ### Package 1 Safe Zone Integration
 **Status**: Interface ready, implementation pending
@@ -285,8 +301,16 @@ self.get_logger().info(f"Time benefit: {time_benefit:.2f}s (threshold: {self.par
 - **Waiting On**: Package 1's curvature-based track section analyzer
 - **Integration**: Add `use_safe_zone_check` parameter to enable when available
 
+### Velocity-Dependent Path Analysis (Optional)
+**Concept**: Account for speed reduction in tight sections
+- Analyze path curvature from Spliner waypoints
+- Estimate velocity profile along overtaking path
+- Refine time calculation: `time = sum(segment_distance / segment_velocity)`
+- **Status**: Not implemented - pure distance/velocity is sufficient for current needs
+
 ## References
 
+- **Architecture Document**: `docs/251202-package2-path-based-architecture.md`
 - **Original Proposal**: `docs/251123-overtaking-enhancement.md`
 - **Implementation Spec**: `docs/251125-implementation-spec.md`
 - **Team Coordination**: See `docs/project.md` for Package 1 and Package 3 dependencies
