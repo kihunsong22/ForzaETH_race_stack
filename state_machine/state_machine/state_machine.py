@@ -111,7 +111,8 @@ class StateMachine(Node):
 
             # Package 2: Initialize enhanced decision logic
             self.enhanced_decision = EnhancedDecisionLogic(
-                time_benefit_threshold=self.params.enhanced_time_benefit_threshold
+                time_benefit_threshold=self.params.enhanced_time_benefit_threshold,
+                lookahead_distance=self.params.enhanced_lookahead_distance
             )
 
         # INITIALIZATIONS        
@@ -394,6 +395,11 @@ class StateMachine(Node):
         """
         Package 2: Check if overtaking provides sufficient time benefit
 
+        Path-Based Approach:
+            Compares time to traverse racing line (trailing) vs. Spliner
+            overtaking trajectory. Uses actual path distances - no arbitrary
+            maneuver cost constants.
+
         Integration Pattern:
             This property follows the existing state machine pattern of using
             @property decorators for transition conditions. It's called by
@@ -401,18 +407,23 @@ class StateMachine(Node):
 
         Algorithm:
             1. Find closest opponent ahead within overtaking horizon
-            2. Calculate time benefit using EnhancedDecisionLogic
-            3. Return True if benefit >= threshold (default 0.5s)
+            2. Get Spliner overtaking waypoints (self.avoidance_wpnts)
+            3. Calculate time benefit using path-based comparison
+            4. Return True if benefit >= threshold (default 0.5s)
 
         Returns:
             bool: True if overtaking is time-efficient
 
         See Also:
-            - decision_logic.py:28 for time-benefit calculation
-            - transitions.py:77 for integration point
+            - decision_logic.py for path-based time-benefit calculation
+            - transitions.py for integration point
         """
         # Handle None/empty cases
         if self.cur_vs is None or not self.obstacles:
+            return False
+
+        # Need Spliner waypoints for path-based calculation
+        if not self.avoidance_wpnts or len(self.avoidance_wpnts) < 2:
             return False
 
         # Find closest opponent ahead
@@ -434,11 +445,12 @@ class StateMachine(Node):
         if opponent_velocity <= 0:
             opponent_velocity = 0.1  # Avoid division by zero
 
-        # Calculate time benefit
-        time_benefit = self.enhanced_decision.calculate_time_benefit(
+        # Calculate time benefit using path-based comparison
+        time_benefit = self.enhanced_decision.calculate_time_benefit_from_paths(
             ego_velocity=self.cur_vs,
             opponent_velocity=opponent_velocity,
-            distance=min_distance
+            following_distance=self.enhanced_decision.lookahead_distance,
+            overtaking_waypoints=self.avoidance_wpnts
         )
 
         return time_benefit >= self.params.enhanced_time_benefit_threshold

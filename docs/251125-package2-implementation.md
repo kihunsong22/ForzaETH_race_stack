@@ -115,7 +115,8 @@ flowchart TB
 
 ```python
 def calculate_time_benefit(ego_velocity, opponent_velocity, distance=10.0):
-    maneuver_cost = 2.0  # seconds (lane change overhead)
+    # DYNAMIC maneuver cost based on velocity
+    maneuver_cost = base_maneuver_cost + velocity_cost_factor * ego_velocity
 
     time_trailing = distance / opponent_velocity
     time_overtaking = distance / ego_velocity + maneuver_cost
@@ -123,39 +124,46 @@ def calculate_time_benefit(ego_velocity, opponent_velocity, distance=10.0):
     return time_trailing - time_overtaking  # Positive = saves time
 ```
 
-**Key Parameters**:
-- `distance`: Look-ahead distance for calculation (default 10m)
-- `maneuver_cost`: Time penalty for lane change maneuver (2.0 seconds)
-- `enhanced_time_benefit_threshold`: Minimum time saved to trigger overtake (0.5s default)
+**Key Innovation**: **Dynamic maneuver cost** - Higher speeds increase lane change time/risk
+
+**Formula**: `maneuver_cost = 1.5s + 0.15 * ego_velocity`
+- At 3 m/s: 1.5 + 0.15(3) = 1.95s
+- At 5 m/s: 1.5 + 0.15(5) = 2.25s
+- At 8 m/s: 1.5 + 0.15(8) = 2.70s
 
 ### Example Calculation
 
 **Scenario**: Ego at 5 m/s, Opponent at 3 m/s, Distance 10m
 
 ```
+Maneuver Cost (DYNAMIC):
+  1.5s + 0.15 * 5 m/s = 2.25 seconds
+
 Trailing Time:
   10m ÷ 3 m/s = 3.33 seconds
 
 Overtaking Time:
-  10m ÷ 5 m/s + 2.0s maneuver = 4.0 seconds
+  10m ÷ 5 m/s + 2.25s maneuver = 4.25 seconds
 
 Time Benefit:
-  3.33s - 4.0s = -0.67 seconds
+  3.33s - 4.25s = -0.92 seconds
 
 Decision:
-  -0.67s < 0.5s threshold → ❌ DON'T OVERTAKE
-  (Maneuver cost outweighs speed advantage)
+  -0.92s < 0.5s threshold → ❌ DON'T OVERTAKE
+  (Dynamic maneuver cost makes overtaking inefficient)
 ```
 
 ```mermaid
 graph TD
-    A[Ego: 5 m/s<br/>Opponent: 3 m/s<br/>Distance: 10m] --> B{Calculate}
+    A[Ego: 5 m/s<br/>Opponent: 3 m/s<br/>Distance: 10m] --> M[Maneuver Cost<br/>1.5 + 0.15*5 = 2.25s]
+    M --> B{Calculate}
     B -->|Trailing| C[10m ÷ 3m/s<br/>= 3.33s]
-    B -->|Overtaking| D[10m ÷ 5m/s + 2.0s<br/>= 4.0s]
-    C & D --> E[Benefit: 3.33 - 4.0<br/>= -0.67s]
-    E --> F[❌ Don't Overtake<br/>Not worth maneuver cost]
+    B -->|Overtaking| D[10m ÷ 5m/s + 2.25s<br/>= 4.25s]
+    C & D --> E[Benefit: 3.33 - 4.25<br/>= -0.92s]
+    E --> F[❌ Don't Overtake<br/>Dynamic cost too high]
 
     style F fill:#f44336,color:#fff
+    style M fill:#FFC107,color:#000
 ```
 
 ## Code Locations
@@ -175,13 +183,51 @@ graph TD
 ```yaml
 # Package 2: Enhanced Decision Planner
 enhanced_time_benefit_threshold: 0.5  # [s] Minimum time saving for overtaking
+enhanced_base_maneuver_cost: 1.5      # [s] Base lane change time (CORE PARAMETER)
+enhanced_velocity_cost_factor: 0.15   # [s/m/s] Additional cost per velocity (dynamic)
+enhanced_lookahead_distance: 10.0     # [m] Distance for time-benefit calculation
 use_safe_zone_check: false            # Enable Package 1 integration (optional)
 ```
 
+**Core Parameters**:
+
+| Parameter | Default | Range | Purpose |
+|-----------|---------|-------|---------|
+| `enhanced_time_benefit_threshold` | 0.5s | 0.0-5.0s | Minimum time saved to trigger overtake |
+| **`enhanced_base_maneuver_cost`** | **1.5s** | **0.0-5.0s** | **Base lane change time (CRITICAL)** |
+| **`enhanced_velocity_cost_factor`** | **0.15** | **0.0-1.0** | **Dynamic cost per m/s (CRITICAL)** |
+| `enhanced_lookahead_distance` | 10.0m | 5.0-30.0m | Distance for time calculation |
+
+**Dynamic Maneuver Cost Model**:
+```
+maneuver_cost = base_cost + velocity_factor * ego_velocity
+```
+- At low speed (3 m/s): 1.5 + 0.15(3) = 1.95s
+- At medium speed (5 m/s): 1.5 + 0.15(5) = 2.25s
+- At high speed (8 m/s): 1.5 + 0.15(8) = 2.70s
+
 **Tuning Guidelines**:
-- **Higher threshold** (e.g., 1.0s): More conservative, only overtake with clear time advantage
-- **Lower threshold** (e.g., 0.2s): More aggressive, overtake with small time savings
-- **Default 0.5s**: Balanced approach, accounts for maneuver cost uncertainty
+
+**Base Maneuver Cost**:
+- **Higher** (e.g., 2.5s): Assumes slower baseline lane changes
+- **Lower** (e.g., 1.0s): Assumes quick baseline lane changes
+- **Default 1.5s**: Realistic minimum time for F1/10
+
+**Velocity Cost Factor** (KEY INNOVATION):
+- **Higher** (e.g., 0.25): Penalizes high-speed overtaking more heavily
+- **Lower** (e.g., 0.05): Allows aggressive high-speed maneuvers
+- **Default 0.15**: Reasonable velocity-risk tradeoff
+- **Impact**: Makes system velocity-aware - conservative at high speeds
+
+**Time Benefit Threshold**:
+- **Higher** (e.g., 1.0s): More conservative
+- **Lower** (e.g., 0.2s): More aggressive
+- **Default 0.5s**: Balanced
+
+**Lookahead Distance**:
+- **Higher** (e.g., 20.0m): Long-term planning
+- **Lower** (e.g., 5.0m): Immediate benefit focus
+- **Default 10.0m**: Medium-term horizon
 
 ## Testing
 

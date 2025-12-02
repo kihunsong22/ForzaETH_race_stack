@@ -222,6 +222,14 @@ class StateMachineParams:
         self.enhanced_time_benefit_threshold: float = node.get_parameter("enhanced_time_benefit_threshold").value
 
         descriptor = ParameterDescriptor(
+            description="Following distance for path-based time comparison (meters)\n",
+            type=ParameterType.PARAMETER_DOUBLE,
+            floating_point_range=[FloatingPointRange(from_value=5.0, to_value=30.0, step=1.0)]
+        )
+        node.set_descriptor("enhanced_lookahead_distance", descriptor=descriptor)
+        self.enhanced_lookahead_distance: float = node.get_parameter("enhanced_lookahead_distance").value
+
+        descriptor = ParameterDescriptor(
             description="Enable Package 1 safe zone check integration\n",
             type=ParameterType.PARAMETER_BOOL
         )

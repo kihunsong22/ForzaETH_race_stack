@@ -1,10 +1,14 @@
 """
 Enhanced Decision Logic for Package 2
 
-Simple, focused implementation of:
-1. Time-benefit analysis
-2. Dynamic safety margins
+Path-based time-benefit analysis:
+- Compares time to traverse racing line vs. overtaking trajectory
+- Uses actual Spliner path distances (no arbitrary constants)
+- Pure physics: time = distance / velocity
 """
+
+import numpy as np
+
 
 class EnhancedDecisionLogic:
     """
@@ -13,105 +17,90 @@ class EnhancedDecisionLogic:
 
     def __init__(self,
                  time_benefit_threshold: float = 0.5,
-                 base_safety_margin: float = 1.0,
-                 speed_margin_factor: float = 0.1):
+                 lookahead_distance: float = 10.0):
         """
         Args:
             time_benefit_threshold: Minimum time saving (seconds) to overtake
-            base_safety_margin: Minimum distance to opponent (meters)
-            speed_margin_factor: Additional margin per m/s of velocity
+            lookahead_distance: Look-ahead distance for calculation (meters)
         """
         self.time_threshold = time_benefit_threshold
-        self.base_margin = base_safety_margin
-        self.k_speed = speed_margin_factor
+        self.lookahead_distance = lookahead_distance
 
-    def calculate_time_benefit(self,
-                               ego_velocity: float,
-                               opponent_velocity: float,
-                               distance: float = 10.0) -> float:
+    @staticmethod
+    def calculate_arc_length(waypoints) -> float:
         """
-        Calculate time benefit of overtaking vs. trailing
-
-        Core Formula:
-            time_benefit = time_trailing - time_overtaking
-            where:
-            - time_trailing = distance / opponent_velocity
-            - time_overtaking = distance / ego_velocity + maneuver_cost (2.0s)
+        Calculate total path length from waypoint sequence
 
         Args:
-            ego_velocity: Our current speed (m/s)
-            opponent_velocity: Opponent's current speed (m/s)
-            distance: Look-ahead distance for calculation (default 10m)
+            waypoints: List/array of waypoints with .x and .y attributes (or .pose.pose.position)
 
         Returns:
-            float: Time benefit in seconds
-                   Positive → Overtaking saves time
-                   Negative → Trailing is faster (avoid overtaking)
-
-        Example:
-            >>> calc = EnhancedDecisionLogic(time_benefit_threshold=0.5)
-            >>> calc.calculate_time_benefit(5.0, 3.0, 10.0)
-            -0.67  # Don't overtake - not worth the 2s maneuver cost
+            Total arc length in meters
         """
-        if ego_velocity <= 0 or opponent_velocity <= 0:
-            return -999.0  # Invalid
+        if not waypoints or len(waypoints) < 2:
+            return 0.0
 
-        # Assume 2 second maneuver cost (tune later)
-        maneuver_cost = 2.0
+        total_distance = 0.0
+        for i in range(len(waypoints) - 1):
+            # Handle different waypoint formats
+            if hasattr(waypoints[i], 'pose'):
+                # nav_msgs/Path format
+                x1, y1 = waypoints[i].pose.pose.position.x, waypoints[i].pose.pose.position.y
+                x2, y2 = waypoints[i+1].pose.pose.position.x, waypoints[i+1].pose.pose.position.y
+            else:
+                # Direct waypoint format
+                x1, y1 = waypoints[i].x, waypoints[i].y
+                x2, y2 = waypoints[i+1].x, waypoints[i+1].y
 
-        time_trailing = distance / opponent_velocity
-        time_overtaking = distance / ego_velocity + maneuver_cost
+            dx = x2 - x1
+            dy = y2 - y1
+            total_distance += np.sqrt(dx**2 + dy**2)
 
-        return time_trailing - time_overtaking
+        return total_distance
 
-    def calculate_safety_margin(self, ego_velocity: float) -> float:
+    def calculate_time_benefit_from_paths(self,
+                                          ego_velocity: float,
+                                          opponent_velocity: float,
+                                          following_distance: float,
+                                          overtaking_waypoints) -> float:
         """
-        Dynamic safety margin based on speed
+        Calculate time benefit using actual path distances
 
-        Formula: margin = base + k_speed * velocity
+        Pure physics - NO arbitrary maneuver cost constants.
 
-        Args:
-            ego_velocity: Our speed (m/s)
+        Formula:
+            time_benefit = (d_follow / v_opp) - (d_overtake / v_ego)
 
-        Returns:
-            Required safety margin in meters
-        """
-        return self.base_margin + self.k_speed * ego_velocity
-
-    def should_overtake(self,
-                       ego_velocity: float,
-                       opponent_velocity: float,
-                       distance_to_opponent: float,
-                       in_safe_zone: bool) -> bool:
-        """
-        Main decision function: Should we overtake?
-
-        Conditions:
-        1. In safe overtaking zone (from Package 1)
-        2. Time benefit exceeds threshold
-        3. Distance exceeds dynamic safety margin
+        The overtaking path is slightly longer geometrically, but we
+        traverse it at higher velocity (ego faster than opponent).
 
         Args:
             ego_velocity: Our speed (m/s)
             opponent_velocity: Opponent speed (m/s)
-            distance_to_opponent: Distance to opponent (m)
-            in_safe_zone: True if Package 1 says we're in straight section
+            following_distance: Distance along racing line (m)
+            overtaking_waypoints: Waypoints from Spliner (/planner/avoidance/otwpnts)
 
         Returns:
-            True if all conditions met
+            Time benefit in seconds
+            Positive = overtaking is faster
+            Negative = trailing is faster
+
+        Example:
+            ego=6.0 m/s, opp=3.0 m/s, d_follow=10.0m, d_overtake=10.5m
+            time_follow = 10.0/3.0 = 3.33s
+            time_overtake = 10.5/6.0 = 1.75s
+            benefit = 3.33 - 1.75 = 1.58s → OVERTAKE
         """
-        # Condition 1: Must be in safe zone
-        if not in_safe_zone:
-            return False
+        if ego_velocity <= 0 or opponent_velocity <= 0:
+            return -999.0  # Invalid velocities
 
-        # Condition 2: Time benefit
-        benefit = self.calculate_time_benefit(ego_velocity, opponent_velocity)
-        if benefit < self.time_threshold:
-            return False
+        # Calculate overtaking path distance from Spliner
+        d_overtake = self.calculate_arc_length(overtaking_waypoints)
+        if d_overtake == 0:
+            d_overtake = following_distance  # Fallback if path empty
 
-        # Condition 3: Safety margin
-        required_margin = self.calculate_safety_margin(ego_velocity)
-        if distance_to_opponent < required_margin:
-            return False
+        # Pure time comparison - NO maneuver cost
+        time_follow = following_distance / opponent_velocity
+        time_overtake = d_overtake / ego_velocity
 
-        return True
+        return time_follow - time_overtake
