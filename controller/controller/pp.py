@@ -129,12 +129,10 @@ class PP_Controller:
         else: 
             raise Exception("L1_point is None")
         
-        # ================= Predictive Safety Logic (Smart Overtake Mode) =================
+        # ================= Predictive Safety Logic  =================
         if self.opponent is not None and len(self.opponent) >= 6 and self.position_in_map_frenet is not None:
             # 1. Extract Data
-            opp_s = self.opponent[0]
-            opp_d = self.opponent[1]
-            opp_vs = self.opponent[2]
+            opp_s, opp_d, opp_vs = self.opponent[0:3]
             # opp_as is passed as argument
 
             # 2. Predict Future (0.5s ahead) using Constant Acceleration
@@ -149,26 +147,30 @@ class PP_Controller:
 
             # 4. Check Overtake Intention
             # If steering angle is significant (> 0.1 rad approx 6 deg), assume overtaking
-            is_overtaking = abs(steering_angle) > 0.1
-            
+            is_overtaking = abs(steering_angle) > 0.1 or dist_d > 0.3
+                        
             # 5. Set Dynamic Thresholds
             safe_dist_s = 0.8 if is_overtaking else 1.5  # Allow closer if overtaking
             safe_dist_d = 0.3
 
-            # 6. Safety Check
-            if 0 < dist_s < safe_dist_s and dist_d < safe_dist_d:
-                self.logger_warn(f"[Safety] Risk Detected! Matching Speed. Dist S: {dist_s:.2f}m")
-                
-                # 7. Action: Speed Matching (Adaptive Cruise Control)
-                # Instead of blind 50% cut, match opponent speed minus offset
-                target_speed = max(0.0, opp_vs - 0.5) 
-                speed = min(speed, target_speed)
-                
-                # If extremely close (< 0.5m), force stop
-                if dist_s < 0.5:
+            #6. Dual Mode Safety Logic
+            if is_overtaking:
+                # [Overtaking] 
+                # Ignore safety distance for acceleration! Only stop if collision is imminent.
+                # (Critical: < 0.6m s-dist AND < 0.3m d-dist)
+                if 0 < dist_s < 0.6 and dist_d < 0.3: 
+                    self.logger_warn(f"[Safety] CRITICAL! Emergency Stop. Dist: {dist_s:.2f}")
                     speed = 0.0
+                    acceleration = -5.0
+            else:
+                # [Following] 
+                # Maintain safe distance (1.2m)
+                if 0 < dist_s < 1.2 and dist_d < 0.3:
+                    target_speed = max(0.0, opp_vs * 0.9) 
+                    speed = min(speed, target_speed)
                     
-                acceleration = -3.0
+                    if dist_s < 0.5: 
+                        speed = 0.0
         # ==========================================================================================
         
         return speed, acceleration, jerk, steering_angle, L1_point, L1_distance, self.idx_nearest_waypoint
