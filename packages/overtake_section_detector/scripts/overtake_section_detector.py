@@ -1,19 +1,20 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import rospy
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile
 import math
-import tf
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from overtake_section_detector.msg import OvertakeSectionMsg 
 
-class OvertakeDetector:
+class OvertakeDetector(Node):
     def __init__(self):
-        rospy.init_node('overtake_section_detector', anonymous=True)
+        super().__init__('overtake_section_detector')
 
-        self.CURVATURE_THRESHOLD = 0.1
-        self.MIN_SECTION_LENGTH = 5
+        self.CURVATURE_THRESHOLD = 0.04
+        self.MIN_SECTION_LENGTH = 15
         
         self.global_path_poses = []
         self.straight_sections = [] 
@@ -22,24 +23,40 @@ class OvertakeDetector:
         self.pose_topic = '/current_pose' 
         self.path_topic = '/global_path'
 
-        rospy.Subscriber(self.path_topic, Path, self.path_callback)
-        rospy.Subscriber(self.pose_topic, PoseStamped, self.pose_callback)
+        qos_profile = QoSProfile(depth=10)
 
-        self.opp_pub = rospy.Publisher('/overtake_opportunity', OvertakeSectionMsg, queue_size=1)
+        self.create_subscription(
+            Path, 
+            self.path_topic, 
+            self.path_callback, 
+            qos_profile
+        )
+        self.create_subscription(
+            PoseStamped, 
+            self.pose_topic, 
+            self.pose_callback, 
+            qos_profile
+        )
 
-        self.timer = rospy.Timer(rospy.Duration(0.1), self.timer_callback)
+        self.opp_pub = self.create_publisher(
+            OvertakeSectionMsg, 
+            '/overtake_opportunity', 
+            qos_profile
+        )
 
-    def path_callback(self, data):
-        self.global_path_poses = data.poses
+        self.create_timer(0.1, self.timer_callback)
+
+    def path_callback(self, msg):
+        self.global_path_poses = msg.poses
         if len(self.global_path_poses) < 2:
             return
         
         self.straight_sections = self.analyze_curvature(self.global_path_poses)
 
-    def pose_callback(self, data):
-        self.current_pose = data
+    def pose_callback(self, msg):
+        self.current_pose = msg
 
-    def timer_callback(self, event):
+    def timer_callback(self):
         if not self.global_path_poses or self.current_pose is None:
             return
 
@@ -115,17 +132,32 @@ class OvertakeDetector:
                 
         return closest_idx
 
-    def get_yaw(self, orientation):
-        quaternion = (orientation.x, orientation.y, orientation.z, orientation.w)
-        euler = tf.transformations.euler_from_quaternion(quaternion)
-        return euler[2]
+    def get_yaw(self, q):
+        sinr_cosp = 2 * (q.w * q.x + q.y * q.z)
+        cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y)
+        
+        sinp = 2 * (q.w * q.y - q.z * q.x)
+        if abs(sinp) >= 1:
+            pitch = math.copysign(math.pi / 2, sinp)
+        else:
+            pitch = math.asin(sinp)
 
-def main():
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        return yaw
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = OvertakeDetector()
     try:
-        OvertakeDetector()
-        rospy.spin()
-    except rospy.ROSInterruptException:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
         pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
