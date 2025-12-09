@@ -72,16 +72,24 @@ def SpliniTrailingTransition(state_machine: StateMachine) -> StateType:
         # Added two conditions to existing overtaking logic
         # 1. Time-benefit analysis: Only overtake if time-efficient
         # 2. Risk-aware safety margin: Maintain speed-dependent distance
-        elif (
-            not gb_free
-            and ot_sector
-            and state_machine._check_availability_splini_wpts
-            and state_machine._check_ofree
-            and state_machine._check_enhanced_time_benefit       # Package 2: Time-benefit
-            and state_machine._check_enhanced_safety_margin      # Package 2: Safety margin
-        ):
-            return StateType.OVERTAKE
         else:
+            # Debug: Check all conditions for overtaking
+            splini_avail = state_machine._check_availability_splini_wpts
+            ofree = state_machine._check_ofree
+            time_ok = state_machine._check_enhanced_time_benefit
+            safety_ok = state_machine._check_enhanced_safety_margin
+
+            if not gb_free and ot_sector:
+                state_machine.get_logger().info(
+                    f"[PKG2] OT Check: gb_free={gb_free} ot_sector={ot_sector} "
+                    f"splini={splini_avail} ofree={ofree} time={time_ok} safety={safety_ok}",
+                    throttle_duration_sec=2.0
+                )
+
+            if (not gb_free and ot_sector and splini_avail and ofree and time_ok and safety_ok):
+                return StateType.OVERTAKE
+
+            # Default: stay in TRAILING
             return StateType.TRAILING
     else:
         return StateType.FTGONLY

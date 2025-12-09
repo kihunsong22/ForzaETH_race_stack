@@ -496,7 +496,15 @@ class StateMachine(Node):
             overtaking_waypoints=self.avoidance_wpnts
         )
 
-        return time_benefit >= self.params.enhanced_time_benefit_threshold
+        # Debug logging
+        result = time_benefit >= self.params.enhanced_time_benefit_threshold
+        self.get_logger().info(
+            f"[PKG2] Time Benefit: {time_benefit:.2f}s (threshold: {self.params.enhanced_time_benefit_threshold:.2f}s) "
+            f"ego={self.cur_vs:.2f}m/s opp={opponent_velocity:.2f}m/s → {'PASS' if result else 'FAIL'}",
+            throttle_duration_sec=1.0
+        )
+
+        return result
 
     @property
     def _check_enhanced_safety_margin(self) -> bool:
@@ -541,7 +549,14 @@ class StateMachine(Node):
         required_margin = self.enhanced_decision.calculate_safety_margin(self.cur_vs)
 
         # Check if actual distance exceeds required margin
-        return min_distance >= required_margin
+        result = min_distance >= required_margin
+        self.get_logger().info(
+            f"[PKG2] Safety Margin: dist={min_distance:.2f}m required={required_margin:.2f}m "
+            f"(base={self.params.enhanced_base_safety_margin:.2f}m + {self.params.enhanced_speed_margin_factor:.2f}*{self.cur_vs:.2f}m/s) → {'PASS' if result else 'FAIL'}",
+            throttle_duration_sec=1.0
+        )
+
+        return result
 
     ###########
     # HELPERS #
