@@ -53,8 +53,12 @@ class EnhancedDecisionLogic:
                 # nav_msgs/Path format
                 x1, y1 = waypoints[i].pose.pose.position.x, waypoints[i].pose.pose.position.y
                 x2, y2 = waypoints[i+1].pose.pose.position.x, waypoints[i+1].pose.pose.position.y
+            elif hasattr(waypoints[i], 'x_m'):
+                # f110_msgs/Wpnt format (x_m, y_m)
+                x1, y1 = waypoints[i].x_m, waypoints[i].y_m
+                x2, y2 = waypoints[i+1].x_m, waypoints[i+1].y_m
             else:
-                # Direct waypoint format
+                # Direct waypoint format (x, y)
                 x1, y1 = waypoints[i].x, waypoints[i].y
                 x2, y2 = waypoints[i+1].x, waypoints[i+1].y
 

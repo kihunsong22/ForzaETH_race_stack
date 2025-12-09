@@ -466,7 +466,7 @@ class StateMachine(Node):
             return False
 
         # Need Spliner waypoints for path-based calculation
-        if not self.avoidance_wpnts or len(self.avoidance_wpnts) < 2:
+        if not self.avoidance_wpnts or not self.avoidance_wpnts.wpnts or len(self.avoidance_wpnts.wpnts) < 2:
             return False
 
         # Find closest opponent ahead
@@ -493,7 +493,7 @@ class StateMachine(Node):
             ego_velocity=self.cur_vs,
             opponent_velocity=opponent_velocity,
             following_distance=self.enhanced_decision.lookahead_distance,
-            overtaking_waypoints=self.avoidance_wpnts
+            overtaking_waypoints=self.avoidance_wpnts.wpnts  # Pass the waypoints list, not the WpntArray message
         )
 
         # Debug logging
