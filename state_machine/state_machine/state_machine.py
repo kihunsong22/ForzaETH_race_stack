@@ -22,6 +22,12 @@ try:
 except:
     pass
 
+# Package 2 Interface: Import Package 1's message type
+try:
+    from overtake_section_detector.msg import OvertakeSectionMsg
+except:
+    OvertakeSectionMsg = None  # Package 1 not available, fallback to manual
+
 from state_machine.transitions import dummy_transition, timetrials_transition, head_to_head_transition
 from state_machine.state_types import StateType
 from state_machine.states import DefaultStateLogic
@@ -116,6 +122,18 @@ class StateMachine(Node):
                 base_safety_margin=self.params.enhanced_base_safety_margin,
                 speed_margin_factor=self.params.enhanced_speed_margin_factor
             )
+
+            # Package 2 Interface: Subscribe to Package 1's overtake zone detection
+            # Falls back to allowing all sectors if Package 1 not running
+            self.package1_available = (OvertakeSectionMsg is not None)
+            self.package1_overtake_zone = None
+            if self.package1_available:
+                self.create_subscription(
+                    OvertakeSectionMsg,
+                    '/overtake_opportunity',
+                    self.package1_overtake_cb,
+                    10
+                )
 
         # INITIALIZATIONS        
         self.waypoints_dist = 0.1
@@ -237,7 +255,17 @@ class StateMachine(Node):
         theta = rot_euler[2]
 
         self.current_position = [x, y, theta]
-    
+
+    def package1_overtake_cb(self, msg):
+        """
+        Package 2 Interface: Callback for Package 1's automatic overtake zone detection
+        Stores whether we're currently in a safe overtaking zone
+
+        Args:
+            msg (OvertakeSectionMsg): Contains is_possible flag and zone indices
+        """
+        self.package1_overtake_zone = msg.is_possible
+
     ### Properties to evaulate state transitions
     @property
     def _low_bat(self)->bool:
@@ -264,6 +292,16 @@ class StateMachine(Node):
 
     @property
     def _check_ot_sector(self) -> bool:
+        # Package 2 Interface: Check if Package 1 is available
+        if hasattr(self, 'package1_available'):
+            if self.package1_available and self.package1_overtake_zone is not None:
+                # Package 1 running: Use automatic curvature-based detection
+                return self.package1_overtake_zone
+            elif not self.package1_available:
+                # Package 1 not available: Allow overtaking in all sectors
+                return True
+
+        # Fallback: Manual sector selection from ot_sectors.yaml (for non-head_to_head modes)
         for sector in self.ot_sectors:
             if sector['ot_flag']:
                 if (sector['start'] <= self.cur_s / self.waypoints_dist <= (sector['end']+1)):
