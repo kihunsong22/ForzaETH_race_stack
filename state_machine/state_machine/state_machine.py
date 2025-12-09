@@ -135,7 +135,12 @@ class StateMachine(Node):
                     10
                 )
 
-        # INITIALIZATIONS        
+        # INITIALIZATIONS
+        # Initialize Package 1 interface attributes (set to None if not in head_to_head mode)
+        if not hasattr(self, 'package1_available'):
+            self.package1_available = False
+            self.package1_overtake_zone = None
+
         self.waypoints_dist = 0.1
         self.state = StateType(self.params.initial_state)
         self.local_waypoints = WpntArray()
@@ -297,11 +302,9 @@ class StateMachine(Node):
             if self.package1_available and self.package1_overtake_zone is not None:
                 # Package 1 running: Use automatic curvature-based detection
                 return self.package1_overtake_zone
-            elif not self.package1_available:
-                # Package 1 not available: Allow overtaking in all sectors
-                return True
+            # If Package 1 not available, fall through to manual sectors
 
-        # Fallback: Manual sector selection from ot_sectors.yaml (for non-head_to_head modes)
+        # Manual sector selection from ot_sectors.yaml
         for sector in self.ot_sectors:
             if sector['ot_flag']:
                 if (sector['start'] <= self.cur_s / self.waypoints_dist <= (sector['end']+1)):

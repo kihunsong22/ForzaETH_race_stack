@@ -14,6 +14,7 @@ mkdir -p "$DEST_DIR/packages"
 mkdir -p "$DEST_DIR/utilities/libraries"
 mkdir -p "$DEST_DIR/stack_master/config"
 mkdir -p "$DEST_DIR/stack_master/launch"
+mkdir -p "$DEST_DIR/stack_master/maps/small_hall"
 
 # Copy modified packages
 echo "Copying packages..."
@@ -26,5 +27,6 @@ cp -r utilities/libraries/f110_msgs "$DEST_DIR/utilities/libraries/"
 echo "Copying configs..."
 cp stack_master/config/state_machine_params.yaml "$DEST_DIR/stack_master/config/"
 cp stack_master/launch/head_to_head_launch.xml "$DEST_DIR/stack_master/launch/"
+cp stack_master/maps/small_hall/ot_sectors.yaml "$DEST_DIR/stack_master/maps/small_hall/"
 
 echo "=== Sync complete! ==="

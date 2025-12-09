@@ -7,20 +7,20 @@ ot_interpolator:
     Overtaking_sector0:
       start: 0
       end: 94
-      ot_flag: false
+      ot_flag: true
     Overtaking_sector1:
       start: 95
       end: 142
-      ot_flag: false
+      ot_flag: true
     Overtaking_sector2:
       start: 143
       end: 178
-      ot_flag: false
+      ot_flag: true
     Overtaking_sector3:
       start: 179
       end: 245
-      ot_flag: false
+      ot_flag: true
     Overtaking_sector4:
       start: 246
       end: 246
-      ot_flag: false
+      ot_flag: true
